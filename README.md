@@ -111,32 +111,3 @@ Comportement de la publication CTFd : identité = `name` ; absent → création 
 présent → mise à jour des seuls champs qui diffèrent ; relancer ne change rien si tout est à jour ;
 image = manifeste du publisher sinon `registre/dossier:version`, présence vérifiée dans le registre ;
 `--prune` supprime les flags/tags/hints/fichiers absents des yml ; aucun flag affiché en clair.
-
-### Migrer l'événement Fac CORTE existant
-
-```text
-CTFCreator/-/- ○ > create
-  Nom affiché : CorsicanCTF 2026 … Version : 2026.1
-  Importer des challenges existants : /opt/infra/deploy_challenges/challenges
-```
-
-Les challenges sont **copiés** : l'ancien dossier et ce qui est publié restent intacts ; les noms
-CTFd étant identiques, `publish` ne fera que constater « à jour ».
-
-## Tests
-
-```bash
-pip install -e ".[dev]" && pytest -q -m "not integration"
-```
-
-## Provenance
-
-| Dossier | Origine | Modifications |
-|---|---|---|
-| `platform/` | AFFLOKAT `course-ctfd-infra` | correctifs `deploy` (DOCKER_GID/HOST_SSH_DIR transmis à Compose), `check_isolation` (nom de projet), drop-in SSH `10-` + contrôle `sshd -T`, supervision |
-| `ctfcreator/publisher/` | AFFLOKAT `infra/deploy_challenges` | `.dockerignore` respecté au préflight, `--allow-static-flags`, dossiers `_*` ignorés |
-| `labs/` | AFFLOKAT `infra/labctl`, `infra/lab-network` | chemins via `LABCTL_BOXES` / `LABCTL_STATE` |
-| `templates/web-container`, `standards/` | Fac CORTE `_standards` | squelette complété, flag statique assumé |
-| `templates/box` | AFFLOKAT `infra/challenges/_template` | — |
-
-Les dépôts d'origine sont conservés tels quels.
