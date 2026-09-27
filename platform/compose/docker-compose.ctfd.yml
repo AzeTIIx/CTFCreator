@@ -1,0 +1,218 @@
+# CTFd stack — versions epinglees (jamais latest / main).
+# Theme pixo + plugin challenge_containers (0xfbad).
+# Aligné sur le setup amont :
+#   https://github.com/0xfbad/ctfd-challenge-container-plugin
+# Socket Docker + ~/.docker + clés SSH (uid 1001) ; ports challenges 40000-59999.
+
+name: course-ctfd
+
+services:
+  permissions:
+    image: ${ALPINE_IMAGE:-alpine:3.21.3}
+    user: "0:0"
+    volumes:
+      - ctfd_logs:/var/log/CTFd
+      - ctfd_uploads:/var/uploads
+      - ctfd_docker_config:/home/ctfd/.docker
+      - ctfd_ssh:/mnt/ctfd-ssh
+      - ${HOST_SSH_DIR:-/root/.ssh}:/mnt/host-ssh:ro
+    command:
+      - sh
+      - -c
+      - |
+        mkdir -p /home/ctfd/.docker /mnt/ctfd-ssh
+        chown -R 1001:1001 /var/uploads /var/log/CTFd /home/ctfd/.docker
+        if [ -d /mnt/host-ssh ] && [ "$(ls -A /mnt/host-ssh 2>/dev/null)" ]; then
+          cp -a /mnt/host-ssh/. /mnt/ctfd-ssh/ || true
+        fi
+        chown -R 1001:1001 /mnt/ctfd-ssh
+        chmod 700 /mnt/ctfd-ssh || true
+    networks:
+      - ctfd_app
+    restart: "no"
+
+  db:
+    image: ${MARIADB_IMAGE:-mariadb:10.11.13}
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?DB_ROOT_PASSWORD requis}
+      MARIADB_USER: ctfd
+      MARIADB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD requis}
+      MARIADB_DATABASE: ctfd
+      MARIADB_AUTO_UPGRADE: "1"
+    volumes:
+      - ctfd_mysql:/var/lib/mysql
+    networks:
+      - ctfd_db
+    command:
+      - mysqld
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --wait_timeout=28800
+      - --log-warnings=0
+      - --bind-address=0.0.0.0
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: ${DB_MEMORY_LIMIT:-1g}
+          cpus: "1.0"
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
+
+  cache:
+    image: ${REDIS_IMAGE:-redis:7.2.16-bookworm}
+    restart: unless-stopped
+    environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD:?REDIS_PASSWORD requis}
+    command:
+      - redis-server
+      - --requirepass
+      - ${REDIS_PASSWORD:?REDIS_PASSWORD requis}
+      - --bind
+      - 0.0.0.0
+      - --protected-mode
+      - "yes"
+    volumes:
+      - ctfd_redis:/data
+    networks:
+      - ctfd_cache
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: ${CACHE_MEMORY_LIMIT:-256m}
+          cpus: "0.5"
+    security_opt:
+      - no-new-privileges:true
+
+  ctfd:
+    build:
+      context: ./ctfd
+      dockerfile: Dockerfile
+    image: ${CTFD_COURSE_IMAGE:-course-ctfd:3.8.6-containers}
+    restart: unless-stopped
+    user: "1001:1001"
+    env_file:
+      - ../config/ctfd.env
+    environment:
+      HOME: /home/ctfd
+      UPLOAD_FOLDER: /var/uploads
+      DATABASE_URL: mysql+pymysql://ctfd:${DB_PASSWORD}@db:3306/ctfd
+      REDIS_URL: redis://:${REDIS_PASSWORD}@cache:6379
+      WORKERS: ${CTFD_WORKERS:-2}
+      LOG_FOLDER: /var/log/CTFd
+      ACCESS_LOG: "-"
+      ERROR_LOG: "-"
+      REVERSE_PROXY: "true"
+    volumes:
+      - ctfd_logs:/var/log/CTFd
+      - ctfd_uploads:/var/uploads
+      - ctfd_docker_config:/home/ctfd/.docker
+      - ctfd_ssh:/home/ctfd/.ssh:ro
+      - ../themes/pixo:/opt/CTFd/CTFd/themes/pixo:ro
+      - ../plugins/challenge_containers:/opt/CTFd/CTFd/plugins/challenge_containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    group_add:
+      - "${DOCKER_GID:?DOCKER_GID requis — getent group docker}"
+    depends_on:
+      permissions:
+        condition: service_completed_successfully
+      db:
+        condition: service_healthy
+      cache:
+        condition: service_healthy
+    networks:
+      - ctfd_app
+      - ctfd_db
+      - ctfd_cache
+      - ctfd_frontend
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/', timeout=5)\"",
+        ]
+      interval: 15s
+      timeout: 8s
+      retries: 20
+      start_period: 90s
+    deploy:
+      resources:
+        limits:
+          memory: ${CTFD_MEMORY_LIMIT:-1g}
+          cpus: ${CTFD_CPU_LIMIT:-1.0}
+          pids: 512
+    security_opt:
+      - no-new-privileges:true
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+
+  nginx:
+    image: ${NGINX_IMAGE:-nginx:1.28.3}
+    restart: unless-stopped
+    volumes:
+      - ./nginx/ctfd.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "80:80"
+    depends_on:
+      ctfd:
+        condition: service_healthy
+    networks:
+      - ctfd_frontend
+    deploy:
+      resources:
+        limits:
+          memory: ${NGINX_MEMORY_LIMIT:-128m}
+          cpus: "0.5"
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx
+      - /var/run
+      - /tmp
+
+networks:
+  ctfd_frontend:
+    name: ctfd_frontend
+    driver: bridge
+  ctfd_app:
+    name: ctfd_app
+    driver: bridge
+    internal: true
+  ctfd_db:
+    name: ctfd_db
+    driver: bridge
+    internal: true
+  ctfd_cache:
+    name: ctfd_cache
+    driver: bridge
+    internal: true
+
+volumes:
+  ctfd_mysql:
+    name: course_ctfd_mysql
+  ctfd_redis:
+    name: course_ctfd_redis
+  ctfd_uploads:
+    name: course_ctfd_uploads
+  ctfd_logs:
+    name: course_ctfd_logs
+  ctfd_docker_config:
+    name: course_ctfd_docker_config
+  ctfd_ssh:
+    name: course_ctfd_ssh

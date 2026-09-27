@@ -1,0 +1,367 @@
+from __future__ import annotations
+
+import logging
+import os
+import secrets
+import time
+import threading
+
+from flask import Request
+from CTFd.plugins.challenges import BaseChallenge, calculate_value
+from CTFd.plugins.challenges.decay import DECAY_FUNCTIONS
+from CTFd.exceptions.challenges import (
+    ChallengeCreateException,
+    ChallengeUpdateException,
+)
+from CTFd.models import db, Users, Teams, Solves
+from CTFd.utils.user import get_current_user, get_ip
+from flask import request as flask_request
+from sqlalchemy.exc import IntegrityError
+
+from .models import ContainerChallengeModel, ContainerInfoModel, ContainerHistoryModel, ContainerFlagShareModel
+from .utils import get_setting, _TOKEN_LENGTH_KEY, is_team_mode, resolve_xid, owner_filter
+from .freshness import compute_token, render_flag, extract_token
+from .event_logger import event_logger, flag_share_message, flag_share_metadata
+
+logger = logging.getLogger(__name__)
+
+_token_map_lock = threading.Lock()
+# cache keyed by (secret, challenge_id, team_mode, token_length) -> (entity_count, {token -> (entity_id, entity_name)})
+_token_map_cache: dict[tuple[str, int, bool, int], tuple[int, dict[str, tuple[int, str]]]] = {}
+
+
+def _get_token_length() -> int:
+    return int(get_setting(_TOKEN_LENGTH_KEY, 6) or 6)
+
+
+def _find_token_owner(
+    secret: str, challenge_id: int, submitted_token: str, exclude_xid: int, team_mode: bool
+) -> tuple[int, str] | None:
+    """cached lookup of which entity owns a freshness token"""
+    token_length = _get_token_length()
+    entity_class = Teams if team_mode else Users
+    cache_key = (secret, challenge_id, team_mode, token_length)
+    current_count = entity_class.query.count()
+
+    with _token_map_lock:
+        cached = _token_map_cache.get(cache_key)
+        if cached and cached[0] == current_count:
+            match = cached[1].get(submitted_token)
+            if match and match[0] != exclude_xid:
+                return match
+            return None
+
+    # snapshot the entities once and count the same list, so a signup that races us
+    # leaves a count mismatch that invalidates the cache on the next request
+    entities = entity_class.query.all()
+    token_map: dict[str, tuple[int, str]] = {}
+    for entity in entities:
+        token = compute_token(secret, challenge_id, entity.id, length=token_length)
+        token_map[token] = (entity.id, getattr(entity, "name", f"id={entity.id}"))
+
+    with _token_map_lock:
+        _token_map_cache[cache_key] = (len(entities), token_map)
+
+    match = token_map.get(submitted_token)
+    if match and match[0] != exclude_xid:
+        return match
+    return None
+
+
+_plugin_dir = os.path.basename(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_assets = f"/plugins/{_plugin_dir}/src/assets"
+
+
+def _shorten_after_solve(challenge_id: int, xid: int, team_mode: bool) -> int | None:
+    expiry_raw = get_setting("post_solve_expiry_seconds")
+    if not expiry_raw:
+        return None
+    expiry_seconds = int(expiry_raw)
+
+    container = ContainerInfoModel.query.filter_by(challenge_id=challenge_id, **owner_filter(xid, team_mode)).first()
+
+    if not container:
+        return None
+
+    now = int(time.time())
+    solve_time = now - container.timestamp if container.timestamp else None
+
+    container.expires = now + expiry_seconds
+    db.session.commit()
+
+    history = ContainerHistoryModel.query.filter_by(container_id=container.container_id).first()
+    if history:
+        history.reason = "solved"
+        db.session.commit()
+
+    return solve_time
+
+
+class ContainerChallenge(BaseChallenge):
+    id = "container"
+    name = "container"
+    templates = {
+        "create": f"{_assets}/create.html",
+        "update": f"{_assets}/update.html",
+        "view": f"{_assets}/view.html",
+    }
+    scripts = {
+        "create": f"{_assets}/create.js",
+        "update": f"{_assets}/update.js",
+        "view": f"{_assets}/view.js",
+    }
+    route = f"{_assets}/"
+
+    challenge_model = ContainerChallengeModel
+
+    @staticmethod
+    def sanitize_value(value: str | None) -> str | None:
+        return value if value and value != "" else None
+
+    @classmethod
+    def _handle_ssh_password(cls, data: dict[str, str | None], existing_password: str | None = None) -> None:
+        mode = data.pop("ssh_password_mode", None)
+        if mode == "auto":
+            data["ssh_password"] = existing_password or secrets.token_urlsafe(8)
+        elif mode == "none":
+            data["ssh_password"] = None
+
+    @classmethod
+    def create(cls, request: Request) -> ContainerChallengeModel:
+        data = request.form or request.get_json()
+
+        cls._handle_ssh_password(data)
+
+        for attr in ("docker_context", "max_memory_mb", "max_cpu", "expiration_seconds", "max_renewals"):
+            if attr in data:
+                data[attr] = cls.sanitize_value(data[attr])
+
+        for attr in ("initial", "minimum", "decay"):
+            if attr in data:
+                try:
+                    data[attr] = float(data[attr])
+                except (ValueError, TypeError):
+                    raise ChallengeCreateException(f"Invalid input for '{attr}'")
+
+        challenge = cls.challenge_model(**data)
+
+        if challenge.function in DECAY_FUNCTIONS:
+            if data.get("value") and not data.get("initial"):
+                challenge.initial = data["value"]
+
+            for attr in ("initial", "minimum", "decay"):
+                if getattr(challenge, attr) is None:
+                    db.session.rollback()
+                    raise ChallengeCreateException(f"Missing '{attr}' but function is {challenge.function}")
+
+        db.session.add(challenge)
+        db.session.commit()
+
+        if challenge.function in DECAY_FUNCTIONS:
+            calculate_value(challenge)
+
+        return challenge
+
+    _UPDATABLE_FIELDS = {
+        "name",
+        "description",
+        "category",
+        "value",
+        "state",
+        "max_attempts",
+        "connection_info",
+        "type",
+        "image",
+        "port",
+        "command",
+        "volumes",
+        "ctype",
+        "ssh_username",
+        "ssh_password",
+        "docker_context",
+        "max_memory_mb",
+        "max_cpu",
+        "expiration_seconds",
+        "max_renewals",
+        "cap_add",
+        "services_json",
+        "network_json",
+        "function",
+        "initial",
+        "minimum",
+        "decay",
+    }
+
+    @classmethod
+    def update(cls, challenge: ContainerChallengeModel, request: Request) -> ContainerChallengeModel:
+        data = request.form or request.get_json()
+
+        cls._handle_ssh_password(data, existing_password=challenge.ssh_password)
+
+        for attr, value in data.items():
+            if attr not in cls._UPDATABLE_FIELDS:
+                continue
+            if attr in ("docker_context", "max_memory_mb", "max_cpu", "expiration_seconds", "max_renewals"):
+                value = cls.sanitize_value(value)
+            elif attr in ("initial", "minimum", "decay"):
+                try:
+                    value = float(value)
+                except (ValueError, TypeError):
+                    db.session.rollback()
+                    raise ChallengeUpdateException(f"Invalid input for '{attr}'")
+            setattr(challenge, attr, value)
+
+        for attr in ("initial", "minimum", "decay"):
+            if challenge.function in DECAY_FUNCTIONS and getattr(challenge, attr) is None:
+                db.session.rollback()
+                raise ChallengeUpdateException(f"Missing '{attr}' but function is {challenge.function}")
+
+        db.session.commit()
+
+        if challenge.function in DECAY_FUNCTIONS:
+            return calculate_value(challenge)
+
+        return challenge
+
+    @classmethod
+    def attempt(cls, challenge: ContainerChallengeModel, request: Request) -> tuple[bool, str]:
+        data = request.form or request.get_json()
+        submission = data["submission"].strip()
+
+        secret_raw = get_setting("freshness_secret")
+        if not secret_raw:
+            return super().attempt(challenge, request)
+        secret = str(secret_raw)
+
+        from CTFd.models import Flags
+
+        freshness_flags = Flags.query.filter_by(challenge_id=challenge.id, type="freshness").all()
+
+        if not freshness_flags:
+            return super().attempt(challenge, request)
+
+        user = get_current_user()
+        if not user:
+            return False, "user not found"
+
+        team_mode = bool(is_team_mode())
+        xid = resolve_xid(user)
+        if xid is None:
+            return False, "you must be on a team to submit flags"
+
+        for flag in freshness_flags:
+            template = flag.content
+            token_length = _get_token_length()
+            token = compute_token(secret, challenge.id, xid, length=token_length)
+            expected = render_flag(template, token)
+
+            case_insensitive = flag.data and flag.data.lower() == "case_insensitive"
+
+            if case_insensitive:
+                match = expected.lower() == submission.lower()
+            else:
+                match = expected == submission
+
+            if match:
+                solve_time = _shorten_after_solve(challenge.id, xid, team_mode)
+                already_solved = Solves.query.filter_by(account_id=xid, challenge_id=challenge.id).first()
+                if not already_solved:
+                    event_logger.log_event(
+                        "solved",
+                        f"user '{user.name}' solved '{challenge.name}', timer shortened",
+                        user_id=user.id,
+                        username=user.name,
+                        metadata={
+                            "challenge_id": challenge.id,
+                            "challenge_name": challenge.name,
+                            "solve_time": solve_time,
+                        },
+                    )
+                return True, "correct"
+
+            submitted_token = extract_token(template, submission)
+            if submitted_token is None:
+                continue
+
+            owner = _find_token_owner(secret, challenge.id, submitted_token, xid, team_mode)
+            if owner:
+                source_id, identifier = owner
+                in_team = bool(team_mode and user.team)
+                meta = flag_share_metadata(
+                    challenge.id,
+                    challenge.name,
+                    source_id,
+                    identifier,
+                    "teams" if team_mode else "users",
+                    team_id=user.team.id if in_team else None,
+                    team_name=user.team.name if in_team else None,
+                )
+
+                event_logger.log_event(
+                    "flag_sharing",
+                    flag_share_message(user.name, identifier, challenge.name),
+                    user_id=user.id,
+                    username=user.name,
+                    level="warning",
+                    metadata=meta,
+                )
+
+                share_row = ContainerFlagShareModel(
+                    challenge_id=challenge.id,
+                    submitter_user_id=user.id,
+                    submitter_team_id=user.team.id if (team_mode and user.team) else None,
+                    owner_user_id=None if team_mode else source_id,
+                    owner_team_id=source_id if team_mode else None,
+                    submitted_token=submitted_token,
+                    ip=get_ip(flask_request),
+                    timestamp=time.time(),
+                )
+                try:
+                    db.session.add(share_row)
+                    db.session.commit()
+                except IntegrityError:
+                    # unique constraint hit: same submitter already has a row for this token
+                    # on this challenge (e.g. double-click submit). first row is the record
+                    db.session.rollback()
+
+                return False, "this flag belongs to another participant. this attempt has been logged."
+
+        return False, "incorrect"
+
+    @classmethod
+    def read(cls, challenge: ContainerChallengeModel) -> dict[str, str | int | dict[str, str] | None]:
+        data = {
+            "id": challenge.id,
+            "name": challenge.name,
+            "value": challenge.value,
+            "docker_context": challenge.docker_context,
+            "image": challenge.image,
+            "port": challenge.port,
+            "command": challenge.command,
+            "ctype": challenge.ctype,
+            "ssh_username": challenge.ssh_username,
+            "ssh_password": challenge.ssh_password,
+            "expiration_seconds": challenge.expiration_seconds,
+            "max_memory_mb": challenge.max_memory_mb,
+            "max_cpu": challenge.max_cpu,
+            "cap_add": challenge.cap_add,
+            "services_json": challenge.services_json,
+            "network_json": challenge.network_json,
+            "description": challenge.description,
+            "connection_info": challenge.connection_info,
+            "category": challenge.category,
+            "state": challenge.state,
+            "max_attempts": challenge.max_attempts,
+            "type": challenge.type,
+            "initial": challenge.initial if challenge.function != "static" else None,
+            "decay": challenge.decay if challenge.function != "static" else None,
+            "minimum": challenge.minimum if challenge.function != "static" else None,
+            "function": challenge.function,
+            "type_data": {
+                "id": cls.id,
+                "name": cls.name,
+                "templates": cls.templates,
+                "scripts": cls.scripts,
+            },
+        }
+        return data

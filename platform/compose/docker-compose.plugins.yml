@@ -1,0 +1,3 @@
+# Override historique — inutilisé.
+# Le plugin challenge_containers est monté dans docker-compose.ctfd.yml.
+services: {}

@@ -1,0 +1,127 @@
+# Règles d'alerte CTF — seuils à ajuster selon la taille du VPS et le nombre de participants.
+# Visibles dans Prometheus (/alerts) et Grafana (Alerting → Alert rules, source Prometheus).
+# Pas de notification sortante tant qu'aucun Alertmanager n'est branché.
+
+groups:
+  - name: host
+    rules:
+      - alert: HostMemoryHigh
+        expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) > 0.90
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "RAM hôte > 90 % ({{ $value | humanizePercentage }})"
+
+      - alert: HostDiskLow
+        expr: node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|overlay"} < 0.15
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "Disque / < 15 % libre ({{ $value | humanizePercentage }})"
+
+      - alert: HostDiskCritical
+        expr: node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|overlay"} < 0.05
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: "Disque / < 5 % libre — images/instances vont échouer"
+
+      - alert: HostCpuSaturated
+        expr: 1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) > 0.90
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: "CPU hôte > 90 % depuis 15 min"
+
+      - alert: HostPidsHigh
+        # Fork bomb dans une instance : le plugin ne pose pas de pids_limit
+        expr: node_processes_pids / node_processes_max_processes > 0.5
+        for: 1m
+        labels: {severity: critical}
+        annotations:
+          summary: "Table des PID hôte > 50 % — fork bomb probable"
+
+  - name: ctfd-stack
+    rules:
+      - alert: CtfdServiceDown
+        expr: |
+          label_replace(absent(container_memory_working_set_bytes{container_label_com_docker_compose_service="ctfd"}), "service", "ctfd", "", "")
+          or label_replace(absent(container_memory_working_set_bytes{container_label_com_docker_compose_service="nginx"}), "service", "nginx", "", "")
+          or label_replace(absent(container_memory_working_set_bytes{container_label_com_docker_compose_service="db"}), "service", "db", "", "")
+          or label_replace(absent(container_memory_working_set_bytes{container_label_com_docker_compose_service="cache"}), "service", "cache", "", "")
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: "Service CTFd {{ $labels.service }} absent"
+
+      - alert: ScrapeTargetDown
+        expr: up == 0
+        for: 2m
+        labels: {severity: warning}
+        annotations:
+          summary: "Cible {{ $labels.job }} injoignable"
+
+  - name: challenges
+    rules:
+      - alert: ChallengeContainersHigh
+        expr: count(container_memory_working_set_bytes{name=~"chal-.*"}) > 60
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $value }} conteneurs challenge actifs (seuil 60)"
+
+      - alert: ChallengeCpuSaturated
+        # Instance collée à son quota CPU : minage, brute force, boucle
+        expr: |
+          sum by (name, ctf_user, ctf_chal) (rate(container_cpu_usage_seconds_total{name=~"chal-.*"}[5m]))
+          / on (name)
+          max by (name) (container_spec_cpu_quota{name=~"chal-.*"} / container_spec_cpu_period{name=~"chal-.*"})
+          > 0.9
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.name }} (user {{ $labels.ctf_user }}) à {{ $value | humanizePercentage }} de son quota CPU"
+
+      - alert: ChallengeMemoryNearLimit
+        expr: |
+          max by (name, ctf_user, ctf_chal) (container_memory_working_set_bytes{name=~"chal-.*"})
+          / on (name)
+          (max by (name) (container_spec_memory_limit_bytes{name=~"chal-.*"}) > 0 < 1e15)
+          > 0.9
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.name }} à {{ $value | humanizePercentage }} de sa limite RAM"
+
+      - alert: ChallengeNoMemoryLimit
+        # Les services compagnons des stacks ne reçoivent pas de limite dans le plugin
+        expr: max by (name) (container_spec_memory_limit_bytes{name=~"chal-.*"}) == 0 or max by (name) (container_spec_memory_limit_bytes{name=~"chal-.*"}) > 1e15
+        for: 1m
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.name }} tourne sans limite mémoire"
+
+      - alert: ChallengeNoCpuLimit
+        expr: |
+          max by (name) (container_memory_working_set_bytes{name=~"chal-.*"})
+          unless on (name)
+          max by (name) (container_spec_cpu_quota{name=~"chal-.*"} > 0)
+        for: 1m
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.name }} tourne sans quota CPU"
+
+      - alert: ChallengeEgressHigh
+        expr: sum by (name, ctf_user, ctf_chal) (rate(container_network_transmit_bytes_total{name=~"chal-.*"}[5m])) > 5e6
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.name }} émet {{ $value | humanize }}B/s — rebond ou exfiltration ?"
+
+      - alert: ChallengeLongRunning
+        # Les instances ont une expiration côté plugin : une instance très vieille = reaper KO
+        expr: time() - max by (name) (container_start_time_seconds{name=~"chal-.*"}) > 4 * 3600
+        for: 5m
+        labels: {severity: info}
+        annotations:
+          summary: "{{ $labels.name }} tourne depuis plus de 4 h"

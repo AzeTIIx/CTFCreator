@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ctfcreator"
+version = "1.1.0"
+description = "Standard de création et de publication de challenges CTFd (images + API CTFd)"
+requires-python = ">=3.10"
+dependencies = ["PyYAML>=6.0.1,<7", "rich>=13"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.5"]
+
+[project.scripts]
+ctfcreator = "ctfcreator.cli:main"
+labctl = "labctl.cli:main"
+
+[tool.setuptools]
+packages = ["ctfcreator", "ctfcreator.publisher", "labctl"]
+
+[tool.setuptools.package-dir]
+labctl = "labs/labctl/labctl"
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "labs/labctl/tests"]
+pythonpath = [".", "labs/labctl"]
+markers = ["integration: nécessite Docker"]
+
+[tool.ruff]
+line-length = 120
+extend-exclude = ["platform", "labs", "templates"]

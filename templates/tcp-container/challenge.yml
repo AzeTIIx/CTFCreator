@@ -1,0 +1,26 @@
+# challenge.yml — format CTFCreator v1 (voir standards/CHALLENGE-SPEC.md)
+name: "__SLUG__"
+category: "Crypto"
+description: |
+  Connectez-vous au service : `nc {{host}} {{port}}`
+connection_info: "nc {{host}} {{port}}"
+
+function: linear
+value: 500
+initial: 500
+minimum: 100
+decay: 20
+
+flags:
+  - content: "CCTF{local_test_only}"   # placeholder : jamais publié, à remplacer
+    type: static
+tags: [tcp]
+hints: []
+files: []
+
+ctfd_plugin:
+  type: container
+  port: 1337
+  ctype: tcp
+  max_memory_mb: 128
+  max_cpu: 0.25

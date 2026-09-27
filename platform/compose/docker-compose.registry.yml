@@ -1,0 +1,51 @@
+# Registre Docker privé — jamais exposé sur Internet.
+# Bind local par défaut. Réutiliser un registre existant ; ne jamais le
+# supprimer/réinitialiser automatiquement.
+
+name: course-registry
+
+services:
+  registry:
+    image: ${REGISTRY_IMAGE:-registry:2.8.3}
+    restart: unless-stopped
+    environment:
+      REGISTRY_STORAGE_FILESYSTEM_ROOTDIRECTORY: /var/lib/registry
+      REGISTRY_HTTP_ADDR: 0.0.0.0:5000
+      # Auth htpasswd : monter un fichier généré hors dépôt si REGISTRY_AUTH_REQUIRED
+      # REGISTRY_AUTH: htpasswd
+      # REGISTRY_AUTH_HTPASSWD_REALM: course-private
+      # REGISTRY_AUTH_HTPASSWD_PATH: /auth/htpasswd
+    volumes:
+      - registry_data:/var/lib/registry
+      # - ${REGISTRY_HTPASSWD_PATH}:/auth/htpasswd:ro
+    ports:
+      # Bind loopback uniquement — jamais 0.0.0.0 public
+      - "127.0.0.1:5000:5000"
+    networks:
+      - registry_private
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "0.5"
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -q -O /dev/null http://127.0.0.1:5000/v2/ || exit 1",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+networks:
+  registry_private:
+    name: registry_private
+    driver: bridge
+    internal: false
+
+volumes:
+  registry_data:
+    name: course_registry_data

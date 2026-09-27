@@ -1,0 +1,78 @@
+# Cible de challenge en « mode labo isolé » : une IP dédiée par binôme,
+# vrais ports 21/22/80 (aucun NAT, aucun -p), intranet non routé.
+#
+# À lancer UNE FOIS PAR BINÔME avec un projet et un BINOME_ID distincts :
+#   BINOME_ID=1 docker compose -p binome01 -f docker-compose.target.yml up -d
+#   BINOME_ID=2 docker compose -p binome02 -f docker-compose.target.yml up -d
+#
+# La gateway écoute sur 172.30.<BINOME_ID>.10 aux ports RÉELS 21/22/80.
+# Sur l'hôte Debian, ce pont est routé : le peer WireGuard du binôme atteint
+# directement cette IP (voir nftables-lab.nft + wireguard/). Aucun port n'est
+# publié sur 0.0.0.0 : rien n'apparaît sur l'IP publique de l'hôte, donc un
+# nmap de l'étudiant ne voit que SA cible.
+#
+# Les flags sont cuits au build depuis l'environnement (défaut = placeholder
+# de test). En séance, exporter sept valeurs distinctes avant le build.
+
+services:
+  gateway:
+    build:
+      context: ../deploy_challenges/challenges/s07-s08-intrusion-fil-rouge/challenge/gateway
+      args:
+        FLAG_RECON: ${FLAG_RECON:-AFLO{local_test_only}}
+        FLAG_FTP: ${FLAG_FTP:-AFLO{local_test_only}}
+        FLAG_VULN_ID: ${FLAG_VULN_ID:-AFLO{local_test_only}}
+        FLAG_ACCESS: ${FLAG_ACCESS:-AFLO{local_test_only}}
+        FLAG_ENUM: ${FLAG_ENUM:-AFLO{local_test_only}}
+        FLAG_ROOT: ${FLAG_ROOT:-AFLO{local_test_only}}
+    image: s07-s08-intrusion-fil-rouge-gateway:local-build
+    hostname: gateway
+    networks:
+      access:
+        ipv4_address: 172.30.${BINOME_ID:-1}.10
+      internal: {}
+    # Vrais ports, pas de publication hôte : la gateway écoute sur son IP
+    # dédiée. Le FTP passif annonce cette même IP (pas de redirection).
+    environment:
+      PASV_ADDRESS: "172.30.${BINOME_ID:-1}.10"
+      PASV_PORT: "21100"
+    cap_drop: [ALL]
+    cap_add: [SETUID, SETGID, CHOWN, NET_BIND_SERVICE, DAC_OVERRIDE, AUDIT_WRITE, FOWNER, SYS_CHROOT]
+    pids_limit: 256
+    mem_limit: 256m
+    cpus: 1.0
+
+  intranet:
+    build:
+      context: ../deploy_challenges/challenges/s07-s08-intrusion-fil-rouge/challenge/intranet
+      args:
+        FLAG_REBOND: ${FLAG_REBOND:-AFLO{local_test_only}}
+    image: s07-s08-intrusion-fil-rouge-intranet:local-build
+    hostname: intranet
+    networks:
+      internal: {}
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    tmpfs: ["/tmp:size=16m,mode=1777"]
+    pids_limit: 128
+    mem_limit: 128m
+    cpus: 0.5
+
+networks:
+  # Pont d'ACCÈS du binôme : routé sur l'hôte, atteint par le peer WireGuard.
+  # Le /24 est dédié au binôme (BINOME_ID) : aucun voisinage possible.
+  access:
+    name: access_b${BINOME_ID:-1}
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.${BINOME_ID:-1}.0/24
+    driver_opts:
+      # Nom d'interface hôte stable, utile aux règles nftables.
+      com.docker.network.bridge.name: acc_b${BINOME_ID:-1}
+  # Réseau INTERNE : jamais routé, jamais atteint depuis le VPN.
+  internal:
+    name: internal_b${BINOME_ID:-1}
+    driver: bridge
+    internal: true

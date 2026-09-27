@@ -1,0 +1,7 @@
+.git
+solve.md
+tests
+expected
+.env
+__pycache__
+*.pyc

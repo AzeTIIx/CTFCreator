@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+.ctfcreator/
+dist/
+*.egg-info/
+.env
+platform/.env
+platform/config/ctfd.env
+platform/monitoring/.env
+platform/reports/*.json

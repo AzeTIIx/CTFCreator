@@ -1,0 +1,20 @@
+# client.conf.template — profil WireGuard remis à UN binôme.
+#
+# À importer dans le Kali/Exegol du binôme (wg-quick up ./binomeXX.conf).
+# Les <...> sont remplacés par provision-binome.sh. Le binôme ne route dans le
+# tunnel QUE le /24 de sa cible : il ne voit ni l'hôte, ni les autres binômes,
+# ni Internet via le lab (son trafic normal reste hors tunnel).
+
+[Interface]
+# Adresse VPN du binôme (unique) : 10.99.0.(10+b)
+Address = <VPN_CLIENT_ADDR>/32
+PrivateKey = <CLE_PRIVEE_CLIENT>
+# DNS volontairement absent : rien à résoudre côté lab (on cible des IP).
+
+[Peer]
+PublicKey = <CLE_PUBLIQUE_SERVEUR>
+Endpoint = <IP_PUBLIQUE_VPS>:51820
+# Route UNIQUEMENT le sous-réseau de la cible du binôme dans le tunnel.
+# => un nmap du binôme sur 172.30.<b>.10 ne voit que sa cible.
+AllowedIPs = <TARGET_SUBNET>
+PersistentKeepalive = 25

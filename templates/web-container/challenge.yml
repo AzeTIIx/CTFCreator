@@ -1,0 +1,31 @@
+# challenge.yml — format CTFCreator v1 (voir standards/CHALLENGE-SPEC.md)
+name: "__SLUG__"
+category: "Web / Catégorie"
+description: |
+  Contexte du challenge, tel que vu par les participants.
+connection_info: "http://{{host}}:{{port}}/"
+
+# Score dynamique (CTFd >= 3.8). Pour un score fixe : function: static + value.
+function: linear
+value: 500
+initial: 500
+minimum: 100
+decay: 20
+# state: hidden        # défaut à la création : hidden
+
+flags:
+  - content: "CCTF{local_test_only}"   # placeholder : jamais publié, à remplacer
+    type: static
+tags:
+  - web
+  - cwe-000
+hints: []
+files: []
+
+ctfd_plugin:
+  type: container
+  # image : résolue automatiquement (<registre>/__SLUG__:<version>)
+  port: 1337
+  ctype: web
+  max_memory_mb: 256
+  max_cpu: 0.5

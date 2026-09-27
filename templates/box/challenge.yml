@@ -1,0 +1,25 @@
+# Côté CTFd : un challenge « standard » par jalon de la box.
+# `build_arg` relie le jalon à l'ARG de build de la box (box.yml > flags) :
+# la MÊME valeur est cuite dans l'image par labctl et publiée comme flag CTFd.
+schema: aster-multi-milestone/1
+category: "Box / __BOX_NAME__"
+scope_notice: |-
+  Accès par votre profil WireGuard uniquement. Ne tester que votre instance.
+  Pas de scan de l'hôte CTFd, du registre, d'Internet ni des instances voisines.
+milestones:
+  - name: "__BOX_NAME__ · Accès utilisateur"
+    value: 100
+    description: |-
+      Obtenez un accès sur la machine et lisez le flag utilisateur.
+    build_arg: FLAG_USER
+    flag: "AFLO{local_test_only}"      # placeholder : jamais publié, à remplacer
+    tags: [box, foothold]
+    hints: []
+  - name: "__BOX_NAME__ · Administrateur"
+    value: 200
+    description: |-
+      Élevez vos privilèges et lisez le flag administrateur.
+    build_arg: FLAG_ROOT
+    flag: "AFLO{local_test_only}"
+    tags: [box, privesc]
+    hints: []

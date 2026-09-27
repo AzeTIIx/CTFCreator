@@ -1,0 +1,8 @@
+# ctfcreator.yml — réglages d'un événement, à poser à la racine du dossier des challenges.
+# Les options de la ligne de commande priment. Aucun secret ici (jeton : $CTFD_TOKEN).
+event: nom-evenement-2026
+registry: localhost:5000
+version: "2026.1"            # tag immuable des images (jamais latest)
+ctfd_url: http://127.0.0.1   # CTFd derrière nginx sur le VPS
+allow_static_flags: true     # flags cuits dans les images (décision opérateur)
+# state: visible             # force l'état de TOUS les challenges à chaque publication

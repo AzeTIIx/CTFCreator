@@ -1,0 +1,19 @@
+services:
+  public-app:
+    build:
+      context: ./services/web
+    image: network-exposure-public-app:local-build
+    ports:
+      - "8080:8080"
+    depends_on:
+      - internal-admin
+  internal-admin:
+    build:
+      context: ./services/api
+    image: network-exposure-internal-admin:local-build
+    ports:
+      - "9090:9090"
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"

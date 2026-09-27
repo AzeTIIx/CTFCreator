@@ -1,0 +1,66 @@
+# Exemple de politique pare-feu pour le VPS de cours CTFd
+# Backend choisi après inventaire : nftables OU ufw (jamais les deux).
+#
+# Ports exposés | Source autorisée | Service
+# --------------|------------------|--------
+# SSH_PORT      | any              | sshd (admin mobile ; mitigation = clés uniquement)
+# 80/tcp        | any (si HTTP_PUBLIC) | redirection HTTPS / ACME
+# 443/tcp       | any (si HTTPS_PUBLIC)| reverse proxy CTFd
+# 40000-59999/tcp | any (si DEPLOY_MODE=containers) | instances challenges (plugin 0xfbad)
+# 5000/tcp      | jamais public    | registre (bind 127.0.0.1 uniquement)
+# 3306/tcp      | jamais publié    | MariaDB (réseau Docker interne)
+# 6379/tcp      | jamais publié    | Redis (réseau Docker interne)
+
+backend: auto  # nftables | ufw | auto
+default_incoming: drop
+default_outgoing: accept
+
+rules:
+  - name: allow-ssh-any
+    proto: tcp
+    port: "{{ SSH_PORT }}"
+    source: any
+    action: accept
+    required: true
+    note: "Pas de filtre IP admin — déplacements fréquents. harden-ssh obligatoire."
+
+  - name: allow-http-redirect
+    proto: tcp
+    port: 80
+    source: any
+    action: accept
+    when: HTTP_PUBLIC
+
+  - name: allow-https-ctfd
+    proto: tcp
+    port: 443
+    source: any
+    action: accept
+    when: HTTPS_PUBLIC
+
+  - name: allow-challenge-instance-ports
+    proto: tcp
+    port: "40000-59999"
+    source: any
+    action: accept
+    when: DEPLOY_MODE_containers
+    note: "Ports dynamiques publiés par challenge_containers (0xfbad)."
+
+  - name: deny-registry-public
+    proto: tcp
+    port: 5000
+    source: any
+    action: drop
+    note: "Le registre doit binder 127.0.0.1 uniquement."
+
+rollback:
+  - sauvegarder les règles actives avant modification
+  - conserver une session SSH active
+  - tester une reconnexion SSH par clé depuis un autre réseau
+  - restaurer le dump sauvegardé en cas d'échec
+
+verification_externe:
+  - depuis n'importe quel réseau : ssh -p SSH_PORT ADMIN_SSH_USER@TARGET_HOST (clé)
+  - authentification par mot de passe : doit échouer après harden-ssh
+  - depuis Internet : HTTPS atteint CTFd si HTTPS_PUBLIC
+  - depuis Internet : registre:5000 inaccessible

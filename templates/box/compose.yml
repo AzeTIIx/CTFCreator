@@ -1,0 +1,39 @@
+# Compose de box (template). Variables injectées par labctl :
+#   BOX_INDEX, ACCESS_SUBNET, ENTRY_IP, ACCESS_BRIDGE, INTERNAL_BRIDGE, PASV_ADDRESS
+# Aucun port publié sur l'hôte : le service d'entrée écoute sur ENTRY_IP,
+# atteint par le peer WireGuard via routage (voir infra/labctl/README.md).
+services:
+  target:
+    build:
+      context: ./challenge/target
+      args:
+        FLAG_USER: ${FLAG_USER:-AFLO{local_test_only}}
+        FLAG_ROOT: ${FLAG_ROOT:-AFLO{local_test_only}}
+    image: box-__BOX_NAME__-target:local
+    hostname: target
+    networks:
+      access:
+        ipv4_address: ${ENTRY_IP:-172.30.1.10}
+    cap_drop: [ALL]
+    cap_add: [SETUID, SETGID, CHOWN, NET_BIND_SERVICE, DAC_OVERRIDE, AUDIT_WRITE, FOWNER, SYS_CHROOT]
+    pids_limit: 256
+    mem_limit: 256m
+    cpus: 1.0
+
+  # Ajoute ici des services compagnons sur le réseau "internal" (non routé)
+  # pour un scénario de pivot. Exemple : un serveur interne joignable seulement
+  # depuis "target". Voir la box s07-s08 pour un modèle complet.
+
+networks:
+  access:
+    name: ${ACCESS_BRIDGE:-acc_b1}
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: ${ACCESS_BRIDGE:-acc_b1}
+    ipam:
+      config:
+        - subnet: ${ACCESS_SUBNET:-172.30.1.0/24}
+  internal:
+    name: ${INTERNAL_BRIDGE:-int_b1}
+    driver: bridge
+    internal: true

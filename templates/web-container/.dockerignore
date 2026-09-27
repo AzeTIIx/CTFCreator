@@ -1,0 +1,21 @@
+# Contexte de build : uniquement ce que l'image doit contenir.
+.git
+.gitignore
+.dockerignore
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+tests
+expected
+dist
+solve.md
+*.md
+challenge.yml
+challenge.yaml
+security-contract.yaml
+check_challenge.sh
+.env
+.env.*
+*.pem
+*.key

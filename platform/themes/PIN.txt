@@ -1,0 +1,7 @@
+name=pixo
+repo=https://github.com/hmrserver/CTFd-theme-pixo
+commit=67abc2b8a444206061ad6f6070b5e5e17215336b
+declared_ctfd_compat=3.3.0
+target_ctfd=3.8.6
+note=Compatibilite 3.8.6 non garantie amont — THEME_FALLBACK (defaut CTFd>=3.4) limite les templates manquants.
+license=Custom (copyright footer — voir README du theme)

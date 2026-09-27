@@ -1,0 +1,36 @@
+# Exemple de durcissement SSH — valeurs appliquées via drop-in sshd_config.d
+# Ne pas appliquer sans prévol, sauvegarde et test de reconnexion réelle.
+
+target_dropin_path: /etc/ssh/sshd_config.d/50-course-ctfd-hardening.conf
+
+defaults:
+  PermitRootLogin: "no"
+  PasswordAuthentication: "no"
+  KbdInteractiveAuthentication: "no"
+  PubkeyAuthentication: "yes"
+  PermitEmptyPasswords: "no"
+  X11Forwarding: "no"
+  AllowTcpForwarding: "no"
+  AllowAgentForwarding: "no"
+  MaxAuthTries: "3"
+  LoginGraceTime: "20"
+  ClientAliveInterval: "300"
+  ClientAliveCountMax: "2"
+  UsePAM: "yes"
+
+# Appliqué uniquement si ALLOW_USERS_ENABLED=true et ALLOW_USERS fourni
+optional:
+  AllowUsers: "{{ ALLOW_USERS }}"
+
+safety:
+  never_disable_usepam: true
+  never_delete_existing_keys: true
+  never_remove_provider_console: true
+  never_change_port_without_explicit_value: true
+  require_active_ssh_session: true
+  require_sshd_t_before_reload: true
+  require_new_connection_test_or_mark_unverified: true
+
+rollback:
+  restore_backup_automatically_on_failure: true
+  document_provider_console_procedure: true

@@ -1,0 +1,21 @@
+# Manifeste de box (template). Copié par `labctl new <slug>` :
+# __BOX_NAME__ est remplacé par le slug choisi.
+name: __BOX_NAME__
+title: "Nouvelle box"
+kind: box
+description: "Décris le scénario et la chaîne d'exploitation ici."
+
+# Service que le binôme atteint par le VPN (reçoit l'IP d'entrée + les ports).
+entry_service: target
+ports: [22]
+ssh_user: user
+
+compose: compose.yml
+
+# Hook optionnel exécuté une fois avant le build (ex. génération de clés) :
+# prebuild: prebuild.sh
+
+# Flags cuits au build (noms) ; valeurs via l'environnement de l'enseignant.
+flags:
+  - FLAG_USER
+  - FLAG_ROOT

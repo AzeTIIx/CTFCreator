@@ -1,0 +1,21 @@
+# Exemple unit systemd — sauvegarde périodique CTFd
+# Copier vers /etc/systemd/system/ctfd-backup.service et adapter les chemins.
+# Créer aussi un timer ctfd-backup.timer.
+
+[Unit]
+Description=Sauvegarde course-ctfd-infra (non destructive)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/CTFCreator/platform
+ExecStart=/usr/bin/python3 /opt/CTFCreator/platform/scripts/main.py --yes backup
+# Ne jamais ajouter docker system prune ici
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+
+[Install]
+WantedBy=multi-user.target

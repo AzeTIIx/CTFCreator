@@ -1,0 +1,45 @@
+# wg0.conf — serveur WireGuard du lab (à placer dans /etc/wireguard/wg0.conf).
+#
+# ⚠️ À RECETTER SUR LA CIBLE. Non testé sur ce poste (Windows). Remplace la
+#    clé privée et les clés publiques des peers par des vraies (générées avec
+#    `wg genkey | tee privé | wg pubkey`). Ne versionne jamais les clés réelles.
+#
+# Un peer par binôme. Le peer b :
+#   - a l'adresse VPN 10.99.0.(10+b) ;
+#   - route dans le tunnel UNIQUEMENT le /24 de sa cible (côté client, voir
+#     client.conf.template) ;
+#   - est verrouillé côté serveur par AllowedIPs = son /32 (cryptokey routing :
+#     un binôme ne peut pas usurper l'IP d'un autre).
+
+# NOTE : ne PAS copier ce fichier tel quel (les <...> cassent le parsing wg).
+# Génère plutôt un wg0.conf minimal avec ta vraie clé privée et AUCUN peer :
+#
+#   PRIV=$(cat /etc/wireguard/server.key)
+#   cat > /etc/wireguard/wg0.conf <<EOF
+#   [Interface]
+#   Address = 10.99.0.1/24
+#   ListenPort = 51820
+#   PrivateKey = $PRIV
+#   EOF
+#   chmod 600 /etc/wireguard/wg0.conf && wg-quick up wg0
+#
+# Les peers ci-dessous sont des EXEMPLES COMMENTÉS : provision-binome.sh
+# affiche le bloc [Peer] réel à coller pour chaque binôme.
+
+[Interface]
+Address = 10.99.0.1/24
+ListenPort = 51820
+PrivateKey = <CLE_PRIVEE_SERVEUR>
+# Pas de PostUp iptables ici : le cloisonnement est géré par firewall-lab.sh
+# (chaîne DOCKER-USER), pour rester cohérent avec les règles Docker.
+
+# --- exemples de peers (À DÉCOMMENTER/remplacer, un par binôme) ---
+# [Peer]
+# PublicKey = <CLE_PUBLIQUE_BINOME_1>
+# AllowedIPs = 10.99.0.11/32
+#
+# [Peer]
+# PublicKey = <CLE_PUBLIQUE_BINOME_2>
+# AllowedIPs = 10.99.0.12/32
+#
+# … 10.99.0.13/32, 10.99.0.14/32, … (provision-binome.sh génère ces blocs).

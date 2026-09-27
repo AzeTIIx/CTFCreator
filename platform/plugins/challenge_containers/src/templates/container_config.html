@@ -1,0 +1,604 @@
+<form id="cc-settings-form" autocomplete="off" class="w-100">
+    <div class="row">
+        <div class="col-md-4">
+            <h5>Container Limits</h5>
+            <div class="form-group">
+                <label>Max containers per user <span class="cfg-help" data-tip="The most containers one person can have running at once. If someone hits this limit, they'll need to stop a container before starting another.">?</span></label>
+                <input type="number" class="form-control no-spin cc-setting-input" data-key="max_containers_per_user" min="1">
+            </div>
+            <div class="form-group">
+                <label>Concurrent creates <span class="cfg-help" data-tip="Limits how many containers can be created at the same time on a single server. Prevents overload when many players start challenges at once.">?</span></label>
+                <input type="number" class="form-control no-spin cc-setting-input" data-key="max_concurrent_creates" min="1" max="32">
+            </div>
+        </div>
+        <div class="col-md-4">
+            <h5>Timers</h5>
+            <div class="form-group">
+                <label>Default expiration <span class="cfg-help" data-tip="Default container lifetime for new challenges. Each challenge can override this.">?</span></label>
+                <div class="input-group">
+                    <input type="number" class="form-control no-spin" id="cc-duration-default-h" min="0" placeholder="0">
+                    <div class="input-group-append"><span class="input-group-text">h</span></div>
+                    <input type="number" class="form-control no-spin" id="cc-duration-default-m" min="0" max="59" placeholder="30">
+                    <div class="input-group-append"><span class="input-group-text">m</span></div>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Max renewals <span class="cfg-help" data-tip="Default number of times a user can renew their container timer. Each challenge can override this. Set to 0 to disable renewals.">?</span></label>
+                <input type="number" class="form-control no-spin cc-setting-input" data-key="default_max_renewals" min="0">
+            </div>
+            <div class="form-group">
+                <label>Check interval (s) <span class="cfg-help" data-tip="How often the system checks for expired containers, in seconds. Lower means expired containers get cleaned up faster.">?</span></label>
+                <input type="number" class="form-control no-spin cc-setting-input" data-key="expiration_check_interval" min="1">
+            </div>
+            <div class="form-group">
+                <label>Post-solve expiry <span class="cfg-help" data-tip="After a correct flag submission, how long before the container is killed. Set to 0 to disable.">?</span></label>
+                <div class="input-group">
+                    <input type="number" class="form-control no-spin" id="cc-duration-post-m" min="0" placeholder="0">
+                    <div class="input-group-append"><span class="input-group-text">m</span></div>
+                    <input type="number" class="form-control no-spin" id="cc-duration-post-s" min="0" max="59" placeholder="0">
+                    <div class="input-group-append"><span class="input-group-text">s</span></div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <h5>Rate Limiting <span class="badge badge-warning">restart required</span></h5>
+            <div class="form-group">
+                <label>Requests per interval <span class="cfg-help" data-tip="How many times a user can check container status within the rate limit window. Start, stop, and renew have their own stricter limit.">?</span></label>
+                <input type="number" class="form-control no-spin cc-setting-input" data-key="rate_limit_requests" min="1">
+            </div>
+            <div class="form-group">
+                <label>Interval (seconds) <span class="cfg-help" data-tip="The time window for rate limiting, in seconds. Combined with the requests setting above, this defines the throttle.">?</span></label>
+                <input type="number" class="form-control no-spin cc-setting-input" data-key="rate_limit_interval" min="1">
+            </div>
+            <div class="form-group">
+                <label>Freshness token length <span class="cfg-help" data-tip="Character length of the per-user token embedded in freshness flags. Longer tokens are harder to brute-force. Changing this invalidates existing flags in running containers.">?</span></label>
+                <input type="number" class="form-control no-spin cc-setting-input" data-key="freshness_token_length" min="4" max="16">
+            </div>
+        </div>
+    </div>
+    <div class="clearfix">
+        <button type="button" class="btn btn-md btn-primary float-right" id="cc-save-btn">Update</button>
+    </div>
+</form>
+
+<hr class="mt-4">
+
+<div id="cc-docker-alert" style="display:none;"></div>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h5 class="mb-0">Docker Contexts <span class="cfg-help" data-tip="Each context is a Docker host that can run challenge containers. Import contexts from your Docker configuration to spread load across servers. Containers are distributed by weight.">?</span></h5>
+    <div>
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="cc-reload-btn">Reload</button>
+        <button type="button" class="btn btn-sm btn-outline-primary" id="cc-import-btn">Import Contexts</button>
+    </div>
+</div>
+<div class="table-responsive">
+    <table class="table table-striped table-sm border">
+        <thead>
+            <tr>
+                <th><b>Context Name</b></th>
+                <th><b>Public Hostname</b></th>
+                <th><b>Weight</b></th>
+                <th><b>Enabled</b></th>
+                <th><b>Status</b></th>
+                <th><b>Containers</b></th>
+                <th><b>Actions</b></th>
+            </tr>
+        </thead>
+        <tbody id="cc-contexts-table"></tbody>
+    </table>
+</div>
+
+<hr>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h5 class="mb-0">Image Availability <span class="cfg-help" data-tip="Shows which challenge images are present on which Docker hosts. Pull missing images to a context before players need them.">?</span></h5>
+    <div class="d-flex align-items-center">
+        <small class="text-muted mr-2" id="cc-scan-status"></small>
+        <button type="button" class="btn btn-sm btn-outline-primary" id="cc-scan-btn">Scan</button>
+    </div>
+</div>
+<div id="cc-matrix-container">
+    <p class="text-muted text-center small">Click Scan to check which challenge images are available on each context</p>
+</div>
+
+<div class="d-flex justify-content-between align-items-center mb-3 mt-4">
+    <h5 class="mb-0">Danger Zone</h5>
+</div>
+<div>
+    <button type="button" class="btn btn-sm btn-outline-danger" id="cc-clear-history-btn">
+        <i class="fas fa-eraser"></i> Clear Container History
+    </button>
+</div>
+
+<div class="modal fade" id="ccEditCtxModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Edit Docker Context</h5>
+                <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="cc-edit-id">
+                <div class="form-group">
+                    <label>Context Name</label>
+                    <input type="text" class="form-control" id="cc-edit-name" disabled>
+                </div>
+                <div class="form-group" id="cc-edit-hostname-group">
+                    <label>Hostname (SSH)</label>
+                    <input type="text" class="form-control" id="cc-edit-hostname">
+                    <small class="form-text text-muted">SSH target for remote hosts, leave blank if a matching docker context exists on the host</small>
+                </div>
+                <div class="form-group">
+                    <label>Public Hostname</label>
+                    <input type="text" class="form-control" id="cc-edit-pub">
+                    <small class="form-text text-muted">Address users connect to for challenge containers on this host</small>
+                </div>
+                <div class="form-group">
+                    <label>Weight</label>
+                    <input type="number" class="form-control no-spin" id="cc-edit-weight" min="1">
+                    <small class="form-text text-muted">Higher weight means more containers are scheduled to this context</small>
+                </div>
+                <div class="form-check">
+                    <input type="checkbox" class="form-check-input" id="cc-edit-enabled">
+                    <label class="form-check-label" for="cc-edit-enabled">Enabled</label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="cc-edit-save">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="ccImportModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Import Docker Contexts</h5>
+                <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small mb-3">Docker contexts detected from <code>~/.docker/contexts</code> on this host. Set the public hostname for each context you want to use, this is the address users connect to for challenge containers. You can adjust weight and other settings after importing.</p>
+                <div id="cc-discover-loading" class="text-center py-3">
+                    <i class="fas fa-spinner fa-spin"></i> Scanning for contexts...
+                </div>
+                <div id="cc-discover-list" style="display:none;"></div>
+                <div id="cc-discover-empty" style="display:none;" class="text-center text-muted py-3">
+                    No new Docker contexts found on this host
+                    <br><small>Make sure <code>~/.docker</code> is mounted and contexts are created with <code>docker context create</code></small>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<link rel="stylesheet" href="{{ url_for('containers.static', filename='plugin-common.css') }}">
+<style>
+.cc-ctx-actions { white-space: nowrap; display: flex; gap: 4px; }
+.cc-ctx-actions .btn { width: 28px; height: 28px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: none; background: transparent; }
+.cc-ctx-actions .btn:hover { background-color: rgba(0,0,0,0.05); border-radius: 3px; }
+</style>
+
+<script>
+(function() {
+    var B = '/containers';
+
+    function esc(s) {
+        var d = document.createElement('div');
+        d.textContent = s || '';
+        return d.innerHTML;
+    }
+
+    function ccFetch(path, opts) {
+        opts = opts || {};
+        opts.headers = Object.assign({
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+            'CSRF-Token': window.init.csrfNonce
+        }, opts.headers || {});
+        opts.credentials = 'same-origin';
+        return fetch(B + path, opts).then(function(r) { return r.json(); });
+    }
+
+
+    var durationFieldsSecs = [
+        { key: 'post_solve_expiry_seconds', m: 'cc-duration-post-m', s: 'cc-duration-post-s' }
+    ];
+
+    var durationFieldsHM = [
+        { key: 'default_expiration_seconds', h: 'cc-duration-default-h', m: 'cc-duration-default-m' }
+    ];
+
+    function secsToMS(secs) {
+        secs = parseInt(secs) || 0;
+        return { m: Math.floor(secs / 60), s: secs % 60 };
+    }
+
+    function msToSecs(m, s) {
+        return (parseInt(m) || 0) * 60 + (parseInt(s) || 0);
+    }
+
+    function secsToHM(secs) {
+        secs = parseInt(secs) || 0;
+        return { h: Math.floor(secs / 3600), m: Math.floor((secs % 3600) / 60) };
+    }
+
+    function hmToSecs(h, m) {
+        return (parseInt(h) || 0) * 3600 + (parseInt(m) || 0) * 60;
+    }
+
+    function loadSettings() {
+        ccFetch('/api/settings').then(function(data) {
+            var s = data.settings;
+            document.querySelectorAll('.cc-setting-input').forEach(function(el) {
+                if (s[el.dataset.key]) {
+                    el.value = s[el.dataset.key].value;
+                    el.placeholder = s[el.dataset.key].default;
+                }
+            });
+            durationFieldsSecs.forEach(function(df) {
+                if (s[df.key]) {
+                    var ms = secsToMS(s[df.key].value);
+                    document.getElementById(df.m).value = ms.m;
+                    document.getElementById(df.s).value = ms.s;
+                }
+            });
+            durationFieldsHM.forEach(function(df) {
+                if (s[df.key]) {
+                    var hm = secsToHM(s[df.key].value);
+                    document.getElementById(df.h).value = hm.h;
+                    document.getElementById(df.m).value = hm.m;
+                }
+            });
+        });
+    }
+
+    document.getElementById('cc-save-btn').addEventListener('click', function() {
+        if (!document.getElementById('cc-settings-form').reportValidity()) return;
+        var payload = {};
+        document.querySelectorAll('.cc-setting-input').forEach(function(el) {
+            if (el.value !== '') payload[el.dataset.key] = el.type === 'number' ? Number(el.value) : el.value;
+        });
+        durationFieldsSecs.forEach(function(df) {
+            payload[df.key] = msToSecs(
+                document.getElementById(df.m).value,
+                document.getElementById(df.s).value
+            );
+        });
+        durationFieldsHM.forEach(function(df) {
+            payload[df.key] = hmToSecs(
+                document.getElementById(df.h).value,
+                document.getElementById(df.m).value
+            );
+        });
+        ccFetch('/api/settings', { method: 'PUT', body: JSON.stringify(payload) })
+            .then(function(res) {
+                if (res.success) CTFd.ui.ezq.ezAlert({ title: 'Success', body: 'Settings saved', button: 'OK' });
+                else CTFd.ui.ezq.ezAlert({ title: 'Error', body: res.error || 'Save failed', button: 'OK' });
+            });
+    });
+
+
+    function loadContexts() {
+        ccFetch('/api/contexts/list').then(function(data) {
+            renderDockerAlert(data.docker_socket, data.contexts || []);
+            renderContexts(data.contexts || []);
+        });
+    }
+
+    function renderDockerAlert(socketOk, contexts) {
+        var el = document.getElementById('cc-docker-alert');
+        el.style.display = '';
+        if (!socketOk) {
+            el.className = 'alert alert-danger mb-3';
+            el.innerHTML = 'Unable to reach the local Docker socket. Make sure <code>/var/run/docker.sock</code> is mounted and the container has the right group permissions (<code>group_add</code>).';
+            return;
+        }
+        el.className = 'alert alert-success mb-3';
+        el.innerHTML = 'Local Docker socket is reachable.';
+    }
+
+    function renderContexts(contexts) {
+        var tbody = document.getElementById('cc-contexts-table');
+        if (!contexts || !contexts.length) {
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center">No contexts configured</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = contexts.map(function(ctx) {
+            var statusClass, statusText;
+            if (!ctx.enabled) { statusClass = 'text-muted'; statusText = 'DISABLED'; }
+            else if (ctx.healthy) { statusClass = 'text-success font-weight-bold'; statusText = 'UP'; }
+            else if (ctx.connected) { statusClass = 'text-warning font-weight-bold'; statusText = 'DEGRADED'; }
+            else { statusClass = 'text-danger font-weight-bold'; statusText = 'DOWN'; }
+
+            return '<tr>' +
+                '<td><strong>' + esc(ctx.context_name) + '</strong></td>' +
+                '<td>' + esc(ctx.pub_hostname) + '</td>' +
+                '<td>' + ctx.weight + '</td>' +
+                '<td>' + (ctx.enabled ? 'Yes' : 'No') + '</td>' +
+                '<td><span class="' + statusClass + '">' + statusText + '</span></td>' +
+                '<td>' + (ctx.active_containers || 0) + '</td>' +
+                '<td class="cc-ctx-actions">' +
+                    '<button class="btn btn-sm" data-action="test" data-id="' + ctx.id + '" data-name="' + esc(ctx.context_name) + '" title="Test"><i class="fas fa-heartbeat" style="color:#28a745;"></i></button>' +
+                    '<button class="btn btn-sm" data-action="edit" data-id="' + ctx.id + '" data-name="' + esc(ctx.context_name) + '" data-hostname="' + esc(ctx.hostname || '') + '" data-pub="' + esc(ctx.pub_hostname) + '" data-weight="' + ctx.weight + '" data-enabled="' + ctx.enabled + '" title="Edit"><i class="fas fa-edit" style="color:#6c757d;"></i></button>' +
+                    '<button class="btn btn-sm" data-action="delete" data-id="' + ctx.id + '" data-name="' + esc(ctx.context_name) + '" title="Delete"><i class="fas fa-trash" style="color:#dc3545;"></i></button>' +
+                '</td></tr>';
+        }).join('');
+
+        tbody.onclick = function(e) {
+            var btn = e.target.closest('[data-action]');
+            if (!btn) return;
+            if (btn.dataset.action === 'test') testContext(btn.dataset.id, btn.dataset.name, btn);
+            else if (btn.dataset.action === 'edit') showEditModal(btn);
+            else if (btn.dataset.action === 'delete') deleteContext(btn.dataset.id, btn.dataset.name);
+        };
+    }
+
+    function testContext(id, name, btn) {
+        var icon = btn.querySelector('i');
+        var origClass = icon.className;
+        icon.className = 'fas fa-spinner fa-spin';
+        icon.style.color = '#6c757d';
+        btn.disabled = true;
+
+        ccFetch('/api/contexts/test/' + id)
+            .then(function(data) {
+                if (data.success) CTFd.ui.ezq.ezAlert({ title: 'Test Passed', body: name + ' is reachable', button: 'OK' });
+                else CTFd.ui.ezq.ezAlert({ title: 'Test Failed', body: name + ': ' + (data.error || 'could not reach context'), button: 'OK' });
+            })
+            .finally(function() {
+                icon.className = origClass;
+                icon.style.color = '#28a745';
+                btn.disabled = false;
+            });
+    }
+
+    function showEditModal(btn) {
+        document.getElementById('cc-edit-id').value = btn.dataset.id;
+        document.getElementById('cc-edit-name').value = btn.dataset.name;
+        document.getElementById('cc-edit-hostname').value = btn.dataset.hostname;
+        document.getElementById('cc-edit-pub').value = btn.dataset.pub;
+        document.getElementById('cc-edit-weight').value = btn.dataset.weight;
+        document.getElementById('cc-edit-enabled').checked = btn.dataset.enabled === 'true';
+        document.getElementById('cc-edit-hostname-group').style.display = btn.dataset.hostname ? '' : 'none';
+        $('#ccEditCtxModal').modal('show');
+    }
+
+    function deleteContext(id, name) {
+        if (!confirm('Delete context "' + name + '"?')) return;
+        ccFetch('/api/contexts/delete/' + id, { method: 'DELETE' })
+            .then(function(data) {
+                if (data.success) loadContexts();
+                else CTFd.ui.ezq.ezAlert({ title: 'Error', body: data.error || 'Delete failed', button: 'OK' });
+            });
+    }
+
+    document.getElementById('cc-edit-save').addEventListener('click', function() {
+        var pub = document.getElementById('cc-edit-pub').value.trim();
+        if (!pub) { CTFd.ui.ezq.ezAlert({ title: 'Error', body: 'Public hostname is required', button: 'OK' }); return; }
+
+        ccFetch('/api/contexts/update/' + document.getElementById('cc-edit-id').value, {
+            method: 'PUT',
+            body: JSON.stringify({
+                hostname: document.getElementById('cc-edit-hostname').value.trim() || null,
+                pub_hostname: pub,
+                weight: parseInt(document.getElementById('cc-edit-weight').value) || 1,
+                enabled: document.getElementById('cc-edit-enabled').checked
+            })
+        }).then(function(data) {
+            if (data.success) { $('#ccEditCtxModal').modal('hide'); loadContexts(); }
+            else CTFd.ui.ezq.ezAlert({ title: 'Error', body: data.error || 'Update failed', button: 'OK' });
+        });
+    });
+
+    document.getElementById('cc-reload-btn').addEventListener('click', function() {
+        ccFetch('/api/contexts/reload', { method: 'POST' })
+            .then(function(data) {
+                if (data.success) { CTFd.ui.ezq.ezAlert({ title: 'Success', body: 'Contexts reloaded', button: 'OK' }); loadContexts(); }
+                else CTFd.ui.ezq.ezAlert({ title: 'Error', body: data.error || 'Reload failed', button: 'OK' });
+            });
+    });
+
+
+    document.getElementById('cc-import-btn').addEventListener('click', function() {
+        discoverContexts();
+        $('#ccImportModal').modal('show');
+    });
+
+    function discoverContexts() {
+        var loading = document.getElementById('cc-discover-loading');
+        var list = document.getElementById('cc-discover-list');
+        var empty = document.getElementById('cc-discover-empty');
+        loading.style.display = ''; list.style.display = 'none'; empty.style.display = 'none';
+
+        ccFetch('/api/contexts/discover')
+            .then(function(data) {
+                loading.style.display = 'none';
+                var ctxs = data.contexts || [];
+                if (!ctxs.length) { empty.style.display = ''; return; }
+
+                list.style.display = '';
+                list.innerHTML = ctxs.map(function(ctx) {
+                    var badge = ctx.reachable
+                        ? '<small class="text-success">connected</small>'
+                        : '<small class="text-warning">unreachable</small>';
+                    return '<div class="border rounded p-2 mb-2 d-flex align-items-center cc-disc-row">' +
+                        '<div class="flex-grow-1 mr-3">' +
+                            '<strong>' + esc(ctx.name) + '</strong>' +
+                            '<div><small class="text-muted">' + esc(ctx.endpoint) + '</small> ' + badge + '</div>' +
+                        '</div>' +
+                        '<div class="d-flex align-items-center" style="gap: 8px;">' +
+                            '<input type="text" class="form-control form-control-sm cc-imp-host" ' +
+                                'placeholder="Public hostname" value="' + esc(ctx.suggested_hostname) + '" ' +
+                                'data-name="' + esc(ctx.name) + '" style="width: 180px;">' +
+                            '<button class="btn btn-sm btn-primary cc-imp-btn" ' +
+                                'data-name="' + esc(ctx.name) + '">Import</button>' +
+                        '</div>' +
+                    '</div>';
+                }).join('');
+
+                list.querySelectorAll('.cc-imp-btn').forEach(function(btn) {
+                    btn.addEventListener('click', function() {
+                        var row = this.closest('.cc-disc-row');
+                        var pubHostname = row.querySelector('.cc-imp-host').value.trim();
+                        if (!pubHostname) {
+                            CTFd.ui.ezq.ezAlert({ title: 'Error', body: 'Public hostname is required', button: 'OK' });
+                            return;
+                        }
+                        importContext(this.dataset.name, pubHostname, this);
+                    });
+                });
+            })
+            .catch(function() { loading.style.display = 'none'; empty.style.display = ''; });
+    }
+
+    function importContext(name, pubHostname, btn) {
+        btn.disabled = true;
+        btn.textContent = '...';
+
+        ccFetch('/api/contexts/add', {
+            method: 'POST',
+            body: JSON.stringify({ context_name: name, pub_hostname: pubHostname, weight: 1, enabled: true })
+        }).then(function(data) {
+            if (data.success) {
+                var row = btn.closest('.cc-disc-row');
+                row.style.opacity = '0.5';
+                row.querySelector('.cc-imp-host').disabled = true;
+                btn.textContent = 'Imported';
+                btn.classList.remove('btn-primary');
+                btn.classList.add('btn-success');
+                loadContexts();
+            } else {
+                btn.disabled = false;
+                btn.textContent = 'Import';
+                CTFd.ui.ezq.ezAlert({ title: 'Error', body: data.error || 'Import failed', button: 'OK' });
+            }
+        });
+    }
+
+
+    document.getElementById('cc-scan-btn').addEventListener('click', function() { scanImages(); });
+
+    document.getElementById('cc-clear-history-btn').addEventListener('click', function() {
+        if (!confirm('Clear all container history? This resets stats and charts.')) return;
+        ccFetch('/api/clear_history', { method: 'POST' }).then(function(data) {
+            if (data.success) CTFd.ui.ezq.ezAlert({ title: 'Success', body: data.success, button: 'OK' });
+            else CTFd.ui.ezq.ezAlert({ title: 'Error', body: data.error || 'Failed', button: 'OK' });
+        });
+    });
+
+    loadCachedImages();
+
+    function loadCachedImages() {
+        var st = document.getElementById('cc-scan-status');
+        var box = document.getElementById('cc-matrix-container');
+
+        ccFetch('/api/images/cache')
+            .then(function(data) {
+                if (!data.cached) {
+                    box.innerHTML = '<p class="text-muted text-center small">No scan data yet. Click Scan to check image availability.</p>';
+                    return;
+                }
+                st.textContent = 'Last scanned: ' + new Date(data.scanned_at * 1000).toLocaleString('en-US', {month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit',hour12:true});
+                renderMatrix(data.images || [], data.contexts || [], data.matrix || {}, box);
+            })
+            .catch(function() {
+                box.innerHTML = '<p class="text-muted text-center small">Click Scan to check image availability</p>';
+            });
+    }
+
+    function scanImages() {
+        var st = document.getElementById('cc-scan-status');
+        var box = document.getElementById('cc-matrix-container');
+        st.textContent = 'Scanning...';
+
+        ccFetch('/api/images/matrix')
+            .then(function(data) {
+                var now = new Date();
+                st.textContent = 'Last scanned: ' + now.toLocaleString('en-US', {month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit',hour12:true});
+                renderMatrix(data.images || [], data.contexts || [], data.matrix || {}, box);
+            })
+            .catch(function(e) { st.textContent = 'Error: ' + e.message; });
+    }
+
+    function renderMatrix(imgs, ctxs, mx, box) {
+        if (!imgs.length) { box.innerHTML = '<p class="text-muted text-center small">No challenge images configured yet</p>'; return; }
+        if (!ctxs.length) { box.innerHTML = '<p class="text-muted text-center small">No connected contexts</p>'; return; }
+
+        function newestRef(img) {
+            var latest = null;
+            ctxs.forEach(function(ctx) {
+                var e = mx[img] && mx[img][ctx];
+                if (e && e.available && e.info) {
+                    if (!latest || e.info.created > latest.created) latest = e.info;
+                }
+            });
+            return latest;
+        }
+
+        var hdr = '<thead><tr><th><b>Image</b></th>' +
+            ctxs.map(function(c) { return '<th class="text-center"><b>' + esc(c) + '</b></th>'; }).join('') +
+            '</tr></thead>';
+
+        var rows = imgs.map(function(img) {
+            var ref = newestRef(img);
+            var anyMissing = false;
+            var anyOutdated = false;
+
+            var cells = ctxs.map(function(ctx) {
+                var entry = mx[img] && mx[img][ctx];
+                if (!entry || !entry.available) {
+                    anyMissing = true;
+                    return '<td class="text-center" style="background:rgba(220,53,69,0.06)">' +
+                        '<i class="fas fa-times-circle text-danger" title="Not found. Build or load this image on this host."></i></td>';
+                }
+
+                var info = entry.info;
+                if (!info) {
+                    return '<td class="text-center">' +
+                        '<i class="fas fa-check-circle text-success" title="Available"></i></td>';
+                }
+
+                // compare by size instead of hash, locally built images have unique IDs per host
+                var isRef = ref && info.created === ref.created && info.size_mb === ref.size_mb;
+                var sizeDiff = ref ? Math.abs(info.size_mb - ref.size_mb) : 0;
+                var threshold = ref ? Math.max(ref.size_mb * 0.05, 1) : 0;
+                var isStale = ref && !isRef && sizeDiff > threshold;
+                if (isStale) anyOutdated = true;
+
+                if (isRef) {
+                    return '<td class="text-center">' +
+                        '<i class="fas fa-check-circle text-success" title="Newest build found across contexts. ' + info.size_mb + 'MB, built ' + esc(info.created) + '"></i></td>';
+                }
+
+                if (isStale) {
+                    return '<td class="text-center" style="background:rgba(255,193,7,0.08)">' +
+                        '<i class="fas fa-exclamation-circle text-warning" title="Possibly outdated. This image is ' + info.size_mb + 'MB but the newest build is ' + ref.size_mb + 'MB (' + sizeDiff + 'MB difference). Built ' + esc(info.created) + '. Consider rebuilding."></i></td>';
+                }
+
+                return '<td class="text-center">' +
+                    '<i class="fas fa-check-circle text-success" title="Size (' + info.size_mb + 'MB) is consistent with the newest build (' + ref.size_mb + 'MB). Built ' + esc(info.created) + '"></i></td>';
+            }).join('');
+
+            var badge = '';
+            if (anyMissing) badge = ' <span class="badge bg-danger">missing</span>';
+            else if (anyOutdated) badge = ' <span class="badge bg-warning text-dark">possibly outdated</span>';
+
+            return '<tr><td>' + esc(img) + badge + '</td>' + cells + '</tr>';
+        }).join('');
+
+        box.innerHTML = '<div class="table-responsive"><table class="table table-sm table-striped border">' +
+            hdr + '<tbody>' + rows + '</tbody></table></div>';
+    }
+
+
+    loadSettings();
+    loadContexts();
+})();
+</script>

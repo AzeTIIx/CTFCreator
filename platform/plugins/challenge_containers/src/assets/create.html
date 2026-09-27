@@ -1,0 +1,253 @@
+{% extends "admin/challenges/create.html" %}
+
+{% block header %}
+<div class="alert alert-secondary" role="alert">
+    Container challenges dynamically spin up a Docker container for each team to run the challenge on.
+</div>
+{% endblock %}
+
+{% block value %}
+<div class="form-group d-none">
+    <label>
+        Connection Info<br>
+        <small class="form-text text-muted">
+            Use this to specify a link, hostname, or connection instructions for your challenge.
+        </small>
+    </label>
+    <input type="text" class="form-control chal-connection-info" name="connection_info" value="Container">
+</div>
+
+<div class="form-group">
+    <label>
+        Value<br>
+        <small class="form-text text-muted">
+            Points awarded for solving this challenge.
+        </small>
+    </label>
+    <input type="number" class="form-control" name="value" placeholder="100" required min="0">
+</div>
+
+<div class="form-group">
+    <label>
+        Image<br>
+        <small class="form-text text-muted">
+            Name of the Docker image to spin up.
+        </small>
+    </label>
+    <input type="text" class="form-control" name="image" placeholder="e.g. tcp-example:latest" required>
+    <div id="image-status" style="margin-top: 6px;"></div>
+</div>
+
+<div class="form-group">
+    <label>
+        Connection Type<br>
+        <small class="form-text text-muted">
+            Connect via web, tcp, or ssh.
+        </small>
+    </label>
+    <select class="form-control" name="ctype" id="connect-type" required>
+        <option value="web" selected>Web</option>
+        <option value="tcp">TCP</option>
+        <option value="ssh">SSH</option>
+    </select>
+</div>
+
+<div id="ssh-fields" style="display: none;">
+    <div class="form-group">
+        <label>
+            SSH Username<br>
+            <small class="form-text text-muted">
+                Username that will be used to connect to the SSH machine.
+            </small>
+        </label>
+        <input type="text" class="form-control" name="ssh_username" placeholder="e.g. ctf">
+    </div>
+
+    <div class="form-group">
+        <label>
+            SSH Password<br>
+            <small class="form-text text-muted">
+                Password shown to users in the connection dialog.
+            </small>
+        </label>
+        <select class="form-control" name="ssh_password_mode">
+            <option value="none">No password</option>
+            <option value="auto" selected>Auto-generate password</option>
+        </select>
+    </div>
+</div>
+
+<div class="form-group">
+    <label>
+        Port<br>
+        <small class="form-text text-muted">
+            Internal container port that should be exposed (external port will be automatically assigned).
+        </small>
+    </label>
+    <input type="number" class="form-control" name="port" placeholder="80" value="80" required>
+</div>
+
+<div class="form-group">
+    <label>
+        Docker Context<br>
+        <small class="form-text text-muted">
+            Select which docker context/host will run this challenge's containers.
+        </small>
+    </label>
+    <select class="form-control" name="docker_context" id="docker-context">
+        <option value="" selected>Loading contexts...</option>
+    </select>
+</div>
+
+<div class="form-group">
+    <label>
+        Expiration<br>
+        <small class="form-text text-muted">
+            Container lifetime before auto-kill.
+        </small>
+    </label>
+    <input type="hidden" name="expiration_seconds" id="cc-expiry-val" value="1800">
+    <div class="input-group">
+        <input type="number" class="form-control no-spin" id="cc-expiry-h" min="0" placeholder="0" value="0">
+        <div class="input-group-append"><span class="input-group-text">h</span></div>
+        <input type="number" class="form-control no-spin" id="cc-expiry-m" min="0" max="59" placeholder="0" value="30">
+        <div class="input-group-append"><span class="input-group-text">m</span></div>
+    </div>
+</div>
+
+<div class="form-group">
+    <label>
+        Max renewals<br>
+        <small class="form-text text-muted">
+            How many times a user can reset the container timer.
+        </small>
+    </label>
+    <input type="number" class="form-control no-spin" name="max_renewals" id="cc-max-renewals" min="0" value="2">
+</div>
+
+<script>
+(function() {
+    var h = document.getElementById('cc-expiry-h');
+    var m = document.getElementById('cc-expiry-m');
+    var v = document.getElementById('cc-expiry-val');
+    function sync() { v.value = (parseInt(h.value) || 0) * 3600 + (parseInt(m.value) || 0) * 60; }
+    h.addEventListener('input', sync);
+    m.addEventListener('input', sync);
+
+    fetch('/containers/api/settings', {
+        headers: { 'X-Requested-With': 'XMLHttpRequest', 'CSRF-Token': init.csrfNonce },
+        credentials: 'same-origin'
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        var s = data.settings || {};
+        if (s.default_expiration_seconds) {
+            var secs = parseInt(s.default_expiration_seconds.value) || 1800;
+            h.value = Math.floor(secs / 3600);
+            m.value = Math.floor((secs % 3600) / 60);
+            h.placeholder = Math.floor(secs / 3600) + ' (default)';
+            m.placeholder = Math.floor((secs % 3600) / 60) + ' (default)';
+            sync();
+        }
+        if (s.default_max_renewals) {
+            var r = document.getElementById('cc-max-renewals');
+            r.value = s.default_max_renewals.value;
+            r.placeholder = s.default_max_renewals.value + ' (default)';
+        }
+    });
+})();
+</script>
+
+<style>
+    #advanced-toggle .fa-chevron-right { transition: transform 0.2s; }
+    #advanced-toggle:not(.collapsed) .fa-chevron-right { transform: rotate(90deg); }
+    input[type=number]::-webkit-outer-spin-button,
+    input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    input[type=number] { -moz-appearance: textfield; }
+</style>
+<a id="advanced-toggle" class="collapsed" data-toggle="collapse" href="#advanced-section" role="button"
+    aria-expanded="false" aria-controls="advanced-section" style="display: inline-block; margin-bottom: 1rem;">
+    <i class="fas fa-chevron-right mr-1"></i> Advanced options
+</a>
+
+<div class="collapse" id="advanced-section">
+    <div class="form-group">
+        <label>
+            Command<br>
+            <small class="form-text text-muted">
+                Command to run in the Docker container.
+            </small>
+        </label>
+        <input type="text" class="form-control" name="command" placeholder="e.g. /bin/sh -c 'exec /start.sh'">
+    </div>
+
+    <div class="form-group">
+        <label>
+            Volumes<br>
+            <small class="form-text text-muted">
+                Custom volumes to mount, in JSON format. E.g.
+                <pre>{"/home/user1/": {"bind": "/mnt/vol2", "mode": "rw"}, "/var/www": {"bind": "/mnt/vol1", "mode": "ro"}}</pre>
+            </small>
+        </label>
+        <input type="text" class="form-control" name="volumes" placeholder='e.g. {"/data": {"bind": "/mnt", "mode": "rw"}}'>
+    </div>
+
+    <div class="form-group">
+        <label>
+            Max Memory (MB)<br>
+            <small class="form-text text-muted">
+                Maximum memory limit per container in megabytes (leave blank for no limit).
+            </small>
+        </label>
+        <input type="number" class="form-control" name="max_memory_mb" placeholder="no limit (default)" min="1">
+    </div>
+
+    <div class="form-group">
+        <label>
+            Max CPU<br>
+            <small class="form-text text-muted">
+                Maximum CPU cores per container as a decimal (leave blank for no limit).
+            </small>
+        </label>
+        <input type="number" class="form-control" name="max_cpu" placeholder="no limit (default)" step="0.1" min="0.1">
+    </div>
+
+    <div class="form-group">
+        <label>
+            Extra Capabilities<br>
+            <small class="form-text text-muted">
+                Comma-separated Linux capabilities to add for network namespace challenges, etc.
+            </small>
+        </label>
+        <input type="text" class="form-control" name="cap_add" placeholder="e.g. NET_ADMIN,SYS_ADMIN">
+    </div>
+
+    <div class="form-group">
+        <label>
+            Companion Services (JSON)<br>
+            <small class="form-text text-muted">
+                Companion containers for multi-service challenges. Leave blank for single-container.
+            </small>
+        </label>
+        <textarea class="form-control" name="services_json" rows="3"
+            placeholder='{"sender": {"image": "sender:latest", "command": "/send.sh"}}'></textarea>
+    </div>
+
+    <div class="form-group">
+        <label>
+            Network Config (JSON)<br>
+            <small class="form-text text-muted">
+                Custom subnet and static IPs. Leave blank for Docker defaults.
+            </small>
+        </label>
+        <textarea class="form-control" name="network_json" rows="2"
+            placeholder='{"subnet": "10.10.10.0/24", "ips": {"entry": "10.10.10.30", "sender": "10.10.10.10"}}'></textarea>
+    </div>
+</div>
+
+<script src="/plugins/challenge-containers/src/assets/challenge-form-utils.js"></script>
+{% endblock %}
+
+{% block type %}
+<input type="hidden" value="container" name="type" id="chaltype">
+{% endblock %}

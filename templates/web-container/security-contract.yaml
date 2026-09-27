@@ -1,0 +1,63 @@
+# security-contract.yaml — TEMPLATE
+# Copier vers <challenge>/security-contract.yaml et remplir avant développement.
+
+meta:
+  slug: "__SLUG__"
+  title: "CHANGE-ME"
+  version: "0.1.0"
+  author: "CHANGE-ME"
+  standard: "CTF-challenge-professional-v1"
+
+cwe:
+  primary: CWE-XXX
+  secondary: []
+  narrative: |
+    Décrire en 2-4 phrases la faiblesse volontaire UNIQUE.
+
+scope:
+  in_scope:
+    - "..."
+  out_of_scope:
+    - "Docker escape / host access"
+    - "DoS / fuzzing destructif"
+    - "Toute autre CWE non listée dans primary/secondary"
+
+intended_vulnerability:
+  endpoint: "METHOD /path"
+  mechanism: "..."
+  success_condition: "Réponse contenant CCTF{"
+
+hardening_required:
+  docker:
+    multi_stage: true
+    user: 10001
+    read_only_rootfs: true
+    cap_drop: [ALL]
+    no_new_privileges: true
+    resource_limits: [mem_limit, cpus, pids_limit]
+    no_host_mounts: true
+    no_privileged: true
+  flag:
+    source: "ENV FLAG cuit dans l'image (flag statique = challenge.yml)"
+    forbidden_in_image: false   # décision opérateur : publication avec allow_static_flags
+    local_placeholder: "CCTF{local_test_only}"
+  network:
+    published_ports: [1337]
+    internet_at_runtime: false
+  state:
+    persistent_volumes: false
+    stateless: true
+
+forbidden:
+  - "Flag COPY'd dans l'image"
+  - "Root runtime"
+  - "Volumes persistants"
+  - "Seconde vulnérabilité non déclarée"
+  - "Fuite flag sur health/robots/headers/erreurs"
+
+acceptance_tests:
+  positive:
+    - tests/exploit_poc.py
+  negative:
+    - tests/security_audit.py
+  recipe: check_challenge.sh

@@ -1,0 +1,16 @@
+# Challenge sans conteneur (fichier(s) à analyser hors ligne)
+name: "__SLUG__"
+category: "Catégorie"
+description: |
+  Consigne. Fichier fourni : `exemple.txt`.
+function: static
+value: 100
+flags:
+  - content: "CCTF{local_test_only}"   # placeholder : jamais publié, à remplacer
+    type: static
+tags: []
+hints:
+  - content: "Indice gratuit"
+    cost: 0
+files:
+  - files/exemple.txt

@@ -1,0 +1,9 @@
+﻿name=challenge_containers
+repo=https://github.com/0xfbad/ctfd-challenge-container-plugin
+commit=1023885a0bbcdcd0c027c132c309ac690233ecd2
+path_in_repo=repo root
+declared_ctfd_compat=unknown
+target_ctfd=3.8.6
+license=UNDECLARED_ON_GITHUB
+status=ACCEPTED_BY_OPERATOR_2026-09-14
+note=Requires docker.sock in CTFd (upstream local context). Residual risk accepted.

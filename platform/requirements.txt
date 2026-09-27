@@ -1,0 +1,21 @@
+# course-ctfd-infra — dépendances Python
+#
+# Runtime : bibliothèque standard uniquement (argparse, subprocess, pathlib,
+# urllib, json, ipaddress, secrets, unittest, …).
+# Aucun paquet PyPI n'est requis pour preflight / deploy / verify / rollback.
+#
+# Interpréteur supporté (épinglé pour le cours) :
+#   Python >= 3.11, < 4
+# Cible de référence documentée : Python 3.11 ou 3.12 sur Debian 12.
+#
+# Installation (no-op utile pour documenter l'environnement) :
+#   python3 -m venv .venv
+#   source .venv/bin/activate   # Windows: .venv\Scripts\activate
+#   python -m pip install -r requirements.txt
+#
+# Ce fichier reste volontairement sans dépendance tierce épinglée.
+# Si une dépendance externe est ajoutée plus tard, elle DOIT être versionnée
+# explicitement ici (jamais "latest") et documentée dans le README.
+
+# Exemple réservé (ne pas décommenter sans audit) :
+# requests==2.32.3
