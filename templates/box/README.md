@@ -24,9 +24,8 @@ __BOX_NAME__/
 ```bash
 python -m labctl deploy __BOX_NAME__ -n 1
 ```
-Puis, depuis un conteneur attaquant sur le même bridge (voir la recette de
-`s07-s08` pour le modèle), ou sur la Debian via WireGuard.
+Puis, depuis un conteneur attaquant sur le même bridge, ou sur la Debian via WireGuard.
 
 ## Règles
-Aucun secret réel ; flags `AFLO{...}` ; périmètre étudiant repris dans la
+Aucun secret réel ; flags `FLAG{...}` ; périmètre étudiant repris dans la
 description CTFd. Voir `<client>/boxes/README.md`.
